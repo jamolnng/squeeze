@@ -1,6 +1,6 @@
 [package]
 name = "squeeze"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2018"
 authors = ["Jesse Laning <jesse@jlaning.com>"]
 license = "MIT OR Apache-2.0"
