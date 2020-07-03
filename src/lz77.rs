@@ -76,7 +76,7 @@ impl Compressor {
   }
 
   pub fn compress(&self, data: &[u8], mut window_length: i64) -> Vec<u8> {
-    if window_length == 0 {
+    if window_length <= 0 {
       window_length = self.default_window_length;
     }
     let mut out = Vec::new();
