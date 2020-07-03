@@ -9,13 +9,15 @@ pub struct Error {
 
 #[derive(Clone, Copy, Debug)]
 pub enum ErrorKind {
-  Other,
+  ReferenceOutOfRange,
+  InvalidCharacter,
 }
 
 impl ErrorKind {
   pub fn as_str(&self) -> &'static str {
     match *self {
-      ErrorKind::Other => "other deflate error",
+      ErrorKind::InvalidCharacter => "invalid character code",
+      ErrorKind::ReferenceOutOfRange => "reference out of range",
     }
   }
 }
@@ -75,7 +77,7 @@ impl Compressor {
     }
   }
 
-  pub fn compress(&self, data: &[u8], mut window_length: i64) -> Vec<u8> {
+  pub fn compress(&self, data: &[u8], mut window_length: i64) -> Result<Vec<u8>> {
     if window_length <= 0 {
       window_length = self.default_window_length;
     }
@@ -113,10 +115,10 @@ impl Compressor {
 
       if best_match_length != 0 {
         new_compressed = vec![self.reference_prefix as u8];
-        for i in self.encode_referennce_int(best_match_distance, 2) {
+        for i in self.encode_referennce_int(best_match_distance, 2)? {
           new_compressed.push(i);
         }
-        for i in self.encode_reference_length(best_match_length) {
+        for i in self.encode_reference_length(best_match_length)? {
           new_compressed.push(i);
         }
         pos += best_match_length;
@@ -141,16 +143,15 @@ impl Compressor {
       }
       out.push(*to);
     }
-    out
+    Ok(out)
   }
 
-  fn encode_referennce_int(&self, mut value: i64, width: i64) -> Vec<u8> {
+  fn encode_referennce_int(&self, mut value: i64, width: i64) -> Result<Vec<u8>> {
     let mut out: Vec<u8> = Vec::new();
     if value < 0 || value >= (self.reference_int_base.pow(width as u32) - 1) {
-      panic!(
-        "Reference value out of range: {} (width = {})",
-        value, width
-      );
+      return Err(Error {
+        kind: ErrorKind::ReferenceOutOfRange,
+      });
     }
     while value > 0 {
       out.insert(
@@ -163,14 +164,14 @@ impl Compressor {
     for i in 0..missing_length {
       out.insert(0, self.reference_int_floor_code as u8);
     }
-    out
+    Ok(out)
   }
 
-  fn encode_reference_length(&self, length: i64) -> Vec<u8> {
+  fn encode_reference_length(&self, length: i64) -> Result<Vec<u8>> {
     self.encode_referennce_int((length - self.min_string_length) as i64, 1)
   }
 
-  pub fn decompress(&self, data: &[u8]) -> Vec<u8> {
+  pub fn decompress(&self, data: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     let mut pos: i64 = 0;
 
@@ -182,8 +183,8 @@ impl Compressor {
       } else {
         let next = data[pos as usize + 1];
         if next != self.reference_prefix as u8 {
-          let distance = self.decode_reference_int(&data[pos as usize + 1..pos as usize + 3], 2);
-          let length = self.decode_reference_length(&data[pos as usize + 3..pos as usize + 4]);
+          let distance = self.decode_reference_int(&data[pos as usize + 1..pos as usize + 3], 2)?;
+          let length = self.decode_reference_length(&data[pos as usize + 3..pos as usize + 4])?;
           let start = out.len() as i64 - distance - length;
           let end = start + length;
           for i in start..end {
@@ -196,11 +197,10 @@ impl Compressor {
         }
       }
     }
-
-    out
+    Ok(out)
   }
 
-  fn decode_reference_int(&self, data: &[u8], width: u64) -> i64 {
+  fn decode_reference_int(&self, data: &[u8], width: u64) -> Result<i64> {
     let mut value = 0;
     for i in 0..width {
       value *= self.reference_int_base;
@@ -208,13 +208,16 @@ impl Compressor {
       if code >= self.reference_int_floor_code && code <= self.reference_int_ceil_code {
         value += code - self.reference_int_floor_code
       } else {
-        panic!("Invalid character code {}", data[i as usize] as char);
+        return Err(Error {
+          kind: ErrorKind::InvalidCharacter,
+        });
       }
     }
-    value
+    Ok(value)
   }
 
-  fn decode_reference_length(&self, data: &[u8]) -> i64 {
-    self.decode_reference_int(data, 1) + self.min_string_length
+  fn decode_reference_length(&self, data: &[u8]) -> Result<i64> {
+    let t = self.decode_reference_int(data, 1)?;
+    Ok(t + self.min_string_length)
   }
 }
