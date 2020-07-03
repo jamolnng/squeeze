@@ -81,7 +81,7 @@ impl Compressor {
     if window_length <= 0 {
       window_length = self.default_window_length;
     }
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(data.len());
     let mut pos = 0;
     let last = data.len() as i64 - self.min_string_length;
 
@@ -115,12 +115,8 @@ impl Compressor {
 
       if best_match_length != 0 {
         new_compressed = vec![self.reference_prefix as u8];
-        for i in self.encode_referennce_int(best_match_distance, 2)? {
-          new_compressed.push(i);
-        }
-        for i in self.encode_reference_length(best_match_length)? {
-          new_compressed.push(i);
-        }
+        new_compressed.extend(self.encode_referennce_int(best_match_distance, 2)?);
+        new_compressed.extend(self.encode_reference_length(best_match_length)?);
         pos += best_match_length;
       } else {
         if data[pos as usize] != self.reference_prefix as u8 {
@@ -131,18 +127,18 @@ impl Compressor {
         pos += 1;
       }
 
-      for i in new_compressed {
-        out.push(i);
-      }
+      out.extend(&new_compressed);
     }
 
     let toin = &data[pos as usize..];
+    out.reserve(toin.len());
     for to in toin {
       if *to == self.reference_prefix as u8 {
         out.push(*to);
       }
       out.push(*to);
     }
+    out.shrink_to_fit();
     Ok(out)
   }
 
@@ -172,7 +168,7 @@ impl Compressor {
   }
 
   pub fn decompress(&self, data: &[u8]) -> Result<Vec<u8>> {
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(data.len());
     let mut pos: i64 = 0;
 
     while (pos as usize) < data.len() {
@@ -187,6 +183,7 @@ impl Compressor {
           let length = self.decode_reference_length(&data[pos as usize + 3..pos as usize + 4])?;
           let start = out.len() as i64 - distance - length;
           let end = start + length;
+          out.reserve((end - start) as usize);
           for i in start..end {
             out.push(out[i as usize]);
           }
